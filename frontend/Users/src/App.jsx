@@ -5,7 +5,8 @@ import About from './routes/About';
 import Chatbot from './routes/Chatbot';
 import Navbar from './routes/Navbar.jsx';
 import News from './routes/News';
-
+import Form from './routes/Form';
+import CivicPulse from './routes/CivicPulse';
 function App() {
     return(
       <BrowserRouter>
@@ -15,6 +16,8 @@ function App() {
           <Route path="/about" element={<About />} />
           <Route path="/chatbot" element={<Chatbot />} />
           <Route path="/news" element={<News />} />
+          <Route path="/form" element={<Form />} />
+          <Route path="/civicpulse" element={<CivicPulse />} />
         </Routes>
       </BrowserRouter>
     )

@@ -369,6 +369,18 @@ async def recluster():
 
 app = FastAPI(title="Government RAG Chatbot Backend")
 
+# Mount GovMatch sub-app from external path
+try:
+    import sys
+    EXTERNAL_GOVMATCH_PARENT = r"D:\Government\govmatch"
+    if EXTERNAL_GOVMATCH_PARENT not in sys.path:
+        sys.path.insert(0, EXTERNAL_GOVMATCH_PARENT)
+    from app.main import app as govmatch_app  # app is inside D:\Government\govmatch
+    app.mount("/govmatch", govmatch_app)
+    print("[govmatch] Mounted external app at /govmatch from D:\\Government\\govmatch\\app")
+except Exception as _e:
+    print(f"[govmatch] Skipped mounting external app: {_e}")
+
 # Ensure DB tables are created and news is fetched on app startup
 init_db()
 fetch_news()
