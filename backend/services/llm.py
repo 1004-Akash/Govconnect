@@ -3,6 +3,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 import requests
 from typing import List
+import openai
+from openai import OpenAI
 
 # Load .env from backend folder (same as vector_db.py)
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -12,6 +14,32 @@ load_dotenv(dotenv_path=env_path)
 # Fallback to hardcoded key if env is missing (not recommended for production)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or "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"
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-3.5-turbo")
+
+# Add this at the top of your llm.py file to fix the OpenRouter client issue
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key="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"
+)
+
+# Update your query_llm_with_context function to use the new client format
+def query_llm_with_context(query: str, context_chunks: List[str], max_chunks: int = 5) -> str:
+    try:
+        # Use the new client format
+        response = client.chat.completions.create(
+            model="openai/gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful government data assistant..."},
+                {"role": "user", "content": f"Context: {context_chunks}\n\nQuery: {query}"}
+            ],
+            max_tokens=500,
+            temperature=0.7
+        )
+        
+        return response.choices[0].message.content
+        
+    except Exception as e:
+        logger.error(f"LLM error: {e}")
+        raise e
 
 
 def _post_openrouter(messages: List[dict], model: str) -> str:
@@ -78,18 +106,31 @@ def query_llm_with_context(query: str, context_chunks: List[str], max_chunks: in
     context_text = "\n\n---\n\n".join(cleaned)
 
     system_prompt = (
-        "You are a precise data assistant for Indian government data. "
-        "Answer using ONLY the provided chunks. If the answer isn't explicitly present, reply exactly: 'I don't know'. "
-        "When reporting numbers, repeat them exactly as written. Be concise. "
-        "If the user's question asks for a single value (e.g., a specific year or metric), respond with one short sentence like 'The <metric> for <year> is <value>.' "
-        "If the question is broad or asks to summarize a row, respond with a very short bullet list of 'key: value' items from the relevant chunk(s). "
-        "Map common phrases to keys where applicable: 'budget estimate' -> budget_estimates_be_, 'revised estimate' -> revised_estimates_re_, 'actuals' or 'actual collection' -> actuals/actual_collection."
+        "You are a helpful government data assistant. Provide natural, flowing text responses like ChatGPT.\n\n"
+        
+        "RESPONSE FORMATTING RULES:\n"
+        "1. **Write in natural, conversational language**\n"
+        "2. **Use complete sentences and paragraphs**\n"
+        "3. **NO bullet points, NO dashes, NO structured formatting**\n"
+        "4. **Flow naturally from one point to the next**\n"
+        "5. **Use proper punctuation and grammar**\n"
+        "6. **Make it sound like a human explaining the information**\n\n"
+        
+        "EXAMPLE FORMATS:\n"
+        "❌ WRONG (structured):\n"
+        "• Project: Name - Location: Place - Cost: Amount\n\n"
+        
+        "✅ CORRECT (natural text):\n"
+        "The government has sanctioned several projects in Karnataka. In Hampi, there is a project with a budget of 25.64 crore rupees. Additionally, in Mysuru, an Ecological Experience Zone project has been approved with a cost of 18.47 crore rupees.\n\n"
+        
+        "For budget questions: 'The budget estimate for 2019-20 is 663343 crore rupees.'\n\n"
+        "IMPORTANT: Always write in flowing, natural text. Never use bullet points or structured formats."
     )
 
     user_prompt = (
         f"Context Chunks:\n{context_text}\n\n"
         f"User Question: {query}\n\n"
-        f"Format per the system instructions above."
+        "Provide a natural, flowing text response. Write in complete sentences like ChatGPT would. Do not use bullet points or structured formatting."
     )
 
     messages = [

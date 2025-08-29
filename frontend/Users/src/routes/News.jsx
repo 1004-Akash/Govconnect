@@ -1,175 +1,396 @@
-import React, { useEffect, useState } from 'react';
+    import React, { useState, useEffect } from 'react';
+import Card from '../components/Card';
+import Chip from '../components/Chip';
+import { timeAgo, decodeEntities } from '../utils/helpers';
+import { NewsEmptyState } from '../components/EmptyState';
+import { NewsCardSkeleton } from '../components/Skeleton';
 
-const NEWS_JSON_URL = 'http://localhost:8000/api/news/json';
-const IMAGE_API_URL = 'http://localhost:8000/api/news/image';
-const REACTIONS_API_URL = 'http://localhost:8000/api/reactions';
-const REACTION_STATS_URL = 'http://localhost:8000/api/reactions/stats';
-const COMMENTS_URL = 'http://localhost:8000/api/reactions/comments';
+const BACKEND_URL = 'http://localhost:8000';
 
-const EMOJI_SET = ['👍', '❤️', '😂', '😮', '😢', '😡'];
+// Use the working endpoints from your backend
+const NEWS_JSON_URL = `${BACKEND_URL}/api/news/json`;
+const IMAGE_API_URL = `${BACKEND_URL}/api/news/image`;
+const REACTIONS_API_URL = `${BACKEND_URL}/api/reactions`;
+const REACTION_STATS_URL = `${BACKEND_URL}/api/reactions/stats`;
+const COMMENTS_URL = `${BACKEND_URL}/api/reactions/comments`;
 
-const News = () => {
+export default function News() {
   const [news, setNews] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [stats, setStats] = useState({});
   const [comments, setComments] = useState({});
   const [commentInput, setCommentInput] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [pickerOpen, setPickerOpen] = useState({});
 
+  // Emoji reactions
+  const EMOJI_SET = ['👍', '❤️', '😂', '😮', '😢', '🤣'];
+
   useEffect(() => {
-    fetch(NEWS_JSON_URL)
-      .then(res => res.json())
-      .then(data => {
-        const items = data.items || [];
-        setNews(items);
-        items.forEach((it, idx) => {
-          if (!it.image_url && it.link) {
-            fetch(`${IMAGE_API_URL}?url=${encodeURIComponent(it.link)}`)
-              .then(r => r.json())
-              .then(img => setNews(prev => { const copy = [...prev]; if (copy[idx]) copy[idx] = { ...copy[idx], image_url: img.image_url }; return copy; }));
-          }
-          fetch(`${REACTION_STATS_URL}?news_link=${encodeURIComponent(it.link)}`)
-            .then(r => r.json())
-            .then(s => setStats(prev => ({ ...prev, [it.link]: s })))
-            .catch(() => {});
-          fetch(`${COMMENTS_URL}?news_link=${encodeURIComponent(it.link)}&limit=5`)
-            .then(r => r.json())
-            .then(c => setComments(prev => ({ ...prev, [it.link]: c.items || [] })))
-            .catch(() => {});
-        });
-      })
-      .catch(err => { setError('Failed to fetch news.'); console.error(err); })
-      .finally(() => setLoading(false));
+    fetchNews();
   }, []);
 
-  const sendReaction = (link, userId, type, comment_text, emoji) => {
-    return fetch(REACTIONS_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ news_link: link, user_id: userId, reaction_type: type, comment_text, emoji })
-    }).then(r => r.json());
+  const fetchNews = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch(NEWS_JSON_URL);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      const items = data.items || [];
+      
+      if (items.length === 0) {
+        setError('No news available at the moment.');
+        setLoading(false);
+        return;
+      }
+      
+      setNews(items);
+      
+      // Fetch additional data for each news item
+      items.forEach(async (item, idx) => {
+        // Fetch image if not available
+        if (!item.image_url && item.link) {
+          try {
+            const imgResponse = await fetch(`${IMAGE_API_URL}?url=${encodeURIComponent(item.link)}`);
+            if (imgResponse.ok) {
+              const imgData = await imgResponse.json();
+              setNews(prev => {
+                const copy = [...prev];
+                if (copy[idx]) copy[idx] = { ...copy[idx], image_url: imgData.image_url };
+                return copy;
+              });
+            }
+          } catch (err) {
+            console.error('Failed to fetch image:', err);
+          }
+        }
+
+        // Fetch reaction stats using news_link
+        try {
+          const statsResponse = await fetch(`${REACTION_STATS_URL}?news_link=${encodeURIComponent(item.link)}`);
+          if (statsResponse.ok) {
+            const statsData = await statsResponse.json();
+            setStats(prev => ({ ...prev, [item.link]: statsData }));
+          }
+        } catch (err) {
+          console.error('Failed to fetch stats:', err);
+        }
+
+        // Fetch comments using news_link
+        try {
+          const commentsResponse = await fetch(`${COMMENTS_URL}?news_link=${encodeURIComponent(item.link)}&limit=5`);
+          if (commentsResponse.ok) {
+            const commentsData = await commentsResponse.json();
+            setComments(prev => ({ ...prev, [item.link]: commentsData.items || [] }));
+          }
+        } catch (err) {
+          console.error('Failed to fetch comments:', err);
+        }
+      });
+    } catch (err) {
+      console.error('Failed to fetch news:', err);
+      setError('Failed to fetch news. Please try again later.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleEmojiLike = (it, emoji, idx) => {
-    sendReaction(it.link, 'web-user', 'like', undefined, emoji).then(() => {
-      fetch(`${REACTION_STATS_URL}?news_link=${encodeURIComponent(it.link)}`)
-        .then(r => r.json())
-        .then(s => setStats(prev => ({ ...prev, [it.link]: s })))
-        .catch(() => {});
+  const sendReaction = async (link, userId, type, comment_text, emoji) => {
+    try {
+      console.log('Sending reaction:', { link, userId, type, comment_text, emoji });
+      
+      // Use the correct endpoint: /api/reactions
+      const response = await fetch(REACTIONS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          news_link: link,  // Use news_link, not news_id
+          user_id: userId, 
+          reaction_type: type, 
+          comment_text, 
+          emoji 
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Reaction failed:', errorData);
+        throw new Error(`Failed to send reaction: ${response.status} ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      console.log('Reaction sent successfully:', result);
+      return result;
+    } catch (err) {
+      console.error('Failed to send reaction:', err);
+      throw err;
+    }
+  };
+
+  const handleEmojiLike = async (item, emoji, idx) => {
+    try {
+      // Use item.link, not item.id
+      await sendReaction(item.link, 'web-user', 'like', undefined, emoji);
+      
+      // Refresh stats using news_link
+      const statsResponse = await fetch(`${REACTION_STATS_URL}?news_link=${encodeURIComponent(item.link)}`);
+      if (statsResponse.ok) {
+        const statsData = await statsResponse.json();
+        setStats(prev => ({ ...prev, [item.link]: statsData }));
+      }
+      
       setPickerOpen(prev => ({ ...prev, [idx]: false }));
-    });
+    } catch (err) {
+      console.error('Failed to send emoji reaction:', err);
+    }
   };
 
   const handleLikeIconClick = (idx) => {
     setPickerOpen(prev => ({ ...prev, [idx]: !prev[idx] }));
   };
 
-  const handleShare = async (it) => {
-    const shareData = { title: it.title, text: it.title, url: it.link };
+  const handleShare = async (item) => {
     try {
+      const shareData = { title: item.title, text: item.title, url: item.link };
+      
       if (navigator.share) {
         await navigator.share(shareData);
       } else {
-        await navigator.clipboard.writeText(it.link);
+        await navigator.clipboard.writeText(item.link);
         alert('Link copied to clipboard');
       }
-      sendReaction(it.link, 'web-user', 'share');
-      fetch(`${REACTION_STATS_URL}?news_link=${encodeURIComponent(it.link)}`)
-        .then(r => r.json())
-        .then(s => setStats(prev => ({ ...prev, [it.link]: s })))
-        .catch(() => {});
-    } catch (_) {}
+      
+      // Send share reaction using item.link
+      await sendReaction(item.link, 'web-user', 'share');
+      
+      // Refresh stats using news_link
+      const statsResponse = await fetch(`${REACTION_STATS_URL}?news_link=${encodeURIComponent(item.link)}`);
+      if (statsResponse.ok) {
+        const statsData = await statsResponse.json();
+        setStats(prev => ({ ...prev, [item.link]: statsData }));
+      }
+    } catch (err) {
+      console.error('Failed to share:', err);
+    }
   };
 
-  const handleComment = (idx, it) => {
+  const handleComment = async (idx, item) => {
     const text = commentInput[idx];
     if (!text) return;
-    sendReaction(it.link, 'web-user', 'comment', text).then(() => {
+    
+    try {
+      // Use item.link, not item.id
+      await sendReaction(item.link, 'web-user', 'comment', text);
+      
       setCommentInput(prev => ({ ...prev, [idx]: '' }));
-      fetch(`${REACTION_STATS_URL}?news_link=${encodeURIComponent(it.link)}`)
-        .then(r => r.json())
-        .then(s => setStats(prev => ({ ...prev, [it.link]: s })))
-        .catch(() => {});
-      fetch(`${COMMENTS_URL}?news_link=${encodeURIComponent(it.link)}&limit=5`)
-        .then(r => r.json())
-        .then(c => setComments(prev => ({ ...prev, [it.link]: c.items || [] })))
-        .catch(() => {});
-    });
+      
+      // Refresh stats and comments using news_link
+      const statsResponse = await fetch(`${REACTION_STATS_URL}?news_link=${encodeURIComponent(item.link)}`);
+      if (statsResponse.ok) {
+        const statsData = await statsResponse.json();
+        setStats(prev => ({ ...prev, [item.link]: statsData }));
+      }
+      
+      const commentsResponse = await fetch(`${COMMENTS_URL}?news_link=${encodeURIComponent(item.link)}&limit=5`);
+      if (commentsResponse.ok) {
+        const commentsData = await commentsResponse.json();
+        setComments(prev => ({ ...prev, [item.link]: commentsData.items || [] }));
+      }
+    } catch (err) {
+      console.error('Failed to send comment:', err);
+    }
   };
 
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-6">
+        <div className="grid gap-6 md:max-w-2xl lg:max-w-4xl mx-auto">
+          {[1, 2, 3].map(i => (
+            <NewsCardSkeleton key={i} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-6">
+        <div className="text-center">
+          <p className="text-red-600 dark:text-red-400 mb-4">Error loading news: {error}</p>
+          <button 
+            onClick={fetchNews}
+            className="btn-primary"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (news.length === 0) {
+    return (
+      <div className="container mx-auto px-4 py-6">
+        <NewsEmptyState onRefresh={fetchNews} />
+      </div>
+    );
+  }
+
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <h2>Latest Government News</h2>
-      {loading && <div>Loading news...</div>}
-      {error && <div style={{ color: 'red' }}>{error}</div>}
-      {!loading && news.length === 0 && !error && <div>No news found. Try refreshing the page.</div>}
-      {news.map((it, idx) => (
-        <div key={idx} style={{ display: 'flex', gap: 12, border: '1px solid #ddd', borderRadius: 8, padding: 16, background: '#fff' }}>
-          {it.image_url ? (
-            <a href={it.link} target="_blank" rel="noopener noreferrer" style={{ flexShrink: 0 }}>
-              <img src={it.image_url} alt="thumb" style={{ width: 160, height: 100, objectFit: 'cover', borderRadius: 6 }} />
-            </a>
-          ) : (
-            <div style={{ width: 160, height: 100, background: '#eee', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>Loading...</div>
-          )}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
-            <h3 style={{ margin: 0 }}><a href={it.link} target="_blank" rel="noopener noreferrer">{it.title}</a></h3>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              {it.pub_date && <small style={{ color: '#666' }}>{it.pub_date}</small>}
-              <small style={{ color: '#1976d2', fontWeight: 600 }}>{it.source}</small>
-              <small style={{ color: '#2e7d32' }}>{it.category}</small>
-            </div>
-            {it.description && <p style={{ margin: 0 }}>{it.description}</p>}
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
+      <div className="container mx-auto px-4 py-6">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 dark:text-slate-100 mb-4">
+            Latest Government News
+          </h1>
+          <p className="text-slate-600 dark:text-slate-400">
+            Stay updated with the latest government policies, schemes, and civic initiatives
+          </p>
+        </div>
 
-            <div style={{ marginTop: 8, display: 'flex', gap: 16, alignItems: 'center' }}>
-              <span title="React" onClick={() => handleLikeIconClick(idx)} style={{ cursor: 'pointer', fontSize: 20 }}>👍</span>
-              <span style={{ color: '#555' }}>{stats[it.link]?.likes || 0}</span>
-              <span title="Share" onClick={() => handleShare(it)} style={{ cursor: 'pointer', fontSize: 20 }}>🔗</span>
-              <span style={{ color: '#555' }}>{stats[it.link]?.shares || 0}</span>
-            </div>
-
-            {pickerOpen[idx] && (
-              <div style={{ display: 'flex', gap: 8, padding: 6, background: '#f7f7f7', borderRadius: 8, width: 'fit-content' }}>
-                {EMOJI_SET.map(em => (
-                  <span key={em} onClick={() => handleEmojiLike(it, em, idx)} style={{ cursor: 'pointer', fontSize: 20 }}>{em}</span>
-                ))}
+        <div className="grid gap-6 md:max-w-2xl lg:max-w-4xl mx-auto">
+          {news.map((item, idx) => (
+            <Card key={idx} className="p-0 overflow-hidden">
+              {/* Media Section */}
+              <div className="relative aspect-[16/9] md:aspect-[21/9] overflow-hidden">
+                <img 
+                  src={item.image_url || 'https://via.placeholder.com/800x450?text=News'} 
+                  alt={item.title}
+                  className="h-full w-full object-cover"
+                />
+                {/* Gradient Overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                
+                {/* Title */}
+                <h2 className="absolute left-4 right-4 bottom-16 md:bottom-20 text-white text-lg md:text-2xl font-semibold drop-shadow">
+                  <a href={item.link} target="_blank" rel="noopener noreferrer" className="text-white hover:text-emerald-300 transition-colors">
+                    {decodeEntities(item.title)}
+                  </a>
+                </h2>
+                
+                {/* Meta Information */}
+                <div className="absolute left-4 bottom-6 flex items-center gap-2 text-white/90 text-xs">
+                  <Chip variant="glass" size="sm">{item.source}</Chip>
+                  <Chip variant="primary" size="sm">{item.category}</Chip>
+                  <span className="text-white/80">{timeAgo(item.pub_date)}</span>
+                </div>
               </div>
-            )}
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input
-                type="text"
-                placeholder="Add a comment..."
-                value={commentInput[idx] || ''}
-                onChange={e => setCommentInput(prev => ({ ...prev, [idx]: e.target.value }))}
-                style={{ flex: 1 }}
-              />
-              <button onClick={() => handleComment(idx, it)}>Comment</button>
-            </div>
+              {/* Body Content */}
+              <div className="p-4 md:p-6 text-slate-700 dark:text-slate-200">
+                <p className="line-clamp-3 leading-relaxed">
+                  {item.description}
+                </p>
+              </div>
 
-            {comments[it.link]?.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-                {comments[it.link].map((c, i) => (
-                  <div key={i} style={{ background: '#f7f7f7', borderRadius: 6, padding: 8 }}>
-                    <div style={{ fontSize: 13, color: '#333' }}>{c.text}</div>
+              {/* Glassy Comment Bar */}
+              <div className="mx-4 -mt-5 mb-4 rounded-full border bg-white/60 dark:bg-white/10 backdrop-blur px-4 py-2 flex items-center gap-3">
+                <input
+                  type="text"
+                  placeholder="Add a comment..."
+                  className="flex-1 input-round bg-transparent placeholder:text-slate-400"
+                  value={commentInput[idx] || ''}
+                  onChange={(e) => setCommentInput(prev => ({ ...prev, [idx]: e.target.value }))}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && e.target.value.trim()) {
+                      handleComment(idx, item);
+                    }
+                  }}
+                />
+                <button 
+                  onClick={() => handleComment(idx, item)}
+                  className="text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.293l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Reactions Row */}
+              <div className="px-4 pb-4 flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => handleLikeIconClick(idx)}
+                  className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 aria-pressed:bg-emerald-50 transition-colors"
+                  aria-pressed="false"
+                >
+                  👍 {stats[item.link]?.likes || 0}
+                </button>
+                <button
+                  onClick={() => handleShare(item)}
+                  className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                >
+                  🔗 {stats[item.link]?.shares || 0}
+                </button>
+                <button
+                  className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                >
+                  💬 {stats[item.link]?.comments || 0}
+                </button>
+              </div>
+
+              {/* Emoji Picker */}
+              {pickerOpen[idx] && (
+                <div className="px-4 pb-4">
+                  <div className="flex gap-2 p-3 bg-slate-100 dark:bg-slate-800 rounded-lg w-fit">
+                    {EMOJI_SET.map(emoji => (
+                      <button
+                        key={emoji}
+                        onClick={() => handleEmojiLike(item, emoji, idx)}
+                        className="text-2xl hover:scale-110 transition-transform cursor-pointer"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              )}
 
-            {stats[it.link]?.emoji_counts && (
-              <div style={{ display: 'flex', gap: 12, color: '#555', flexWrap: 'wrap' }}>
-                {EMOJI_SET.map(em => (
-                  <span key={em}>{em} {stats[it.link]?.emoji_counts?.[em] || 0}</span>
-                ))}
-              </div>
-            )}
+              {/* Comments Display */}
+              {comments[item.link]?.length > 0 && (
+                <div className="px-4 pb-4">
+                  <div className="space-y-2">
+                    {comments[item.link].map((comment, i) => (
+                      <div key={i} className="bg-slate-100 dark:bg-slate-800 rounded-lg p-3">
+                        <div className="text-sm text-slate-700 dark:text-slate-300">
+                          {comment.comment_text}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Emoji Counts */}
+              {stats[item.link]?.emoji_counts && Object.keys(stats[item.link].emoji_counts).length > 0 && (
+                <div className="px-4 pb-4">
+                  <div className="flex gap-3 text-sm text-slate-600 dark:text-slate-400 flex-wrap">
+                    {EMOJI_SET.map(emoji => (
+                      <span key={emoji}>
+                        {emoji} {stats[item.link]?.emoji_counts?.[emoji] || 0}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          ))}
+
+          {/* Load More Button */}
+          <div className="text-center mt-8">
+            <button className="btn-primary" onClick={fetchNews}>
+              Refresh News
+            </button>
           </div>
         </div>
-      ))}
+      </div>
     </div>
   );
-};
-
-export default News;
+}

@@ -551,6 +551,27 @@ async def ping():
 def root():
     return {"message": "Government RAG Chatbot Backend is running."}
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    try:
+        # Check MongoDB connection
+        client.admin.command('ping')
+        return {
+            "status": "healthy", 
+            "service": "govconnect-backend",
+            "mongodb": "connected",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "service": "govconnect-backend", 
+            "mongodb": "disconnected",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
 # Test endpoint in CivicPulse router
 @civicpulse_router.get("/ping")
 async def test_civicpulse():

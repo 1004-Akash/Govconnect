@@ -5,10 +5,16 @@ from models.schemas import ChatRequest, ChatResponse
 from services.embedder import embed_text
 from services.vector_db import search_embeddings
 from services.llm import query_llm, query_llm_with_context
-from services.tts import text_to_speech
+from services.tts import text_to_speech, get_supported_languages
 from services.video import text_audio_to_video
 from typing import List, Dict
 import re
+import base64
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -113,139 +119,128 @@ def _snippets_from_results(user_query: str, results: list, max_chars: int = 600)
     except Exception:
         return None
 
-@router.get("/languages/", response_model=List[Dict[str, str]])
-def get_supported_languages():
-    """Returns a list of supported Indian languages and their codes for TTS."""
-    languages = [
-        {"name": "Hindi", "code": "hi"},
-        {"name": "Bengali", "code": "bn"},
-        {"name": "Telugu", "code": "te"},
-        {"name": "Marathi", "code": "mr"},
-        {"name": "Tamil", "code": "ta"},
-        {"name": "Urdu", "code": "ur"},
-        {"name": "Gujarati", "code": "gu"},
-        {"name": "Kannada", "code": "kn"},
-        {"name": "Malayalam", "code": "ml"},
-        {"name": "Odia", "code": "or"},
-        {"name": "Punjabi", "code": "pa"},
-        {"name": "Assamese", "code": "as"},
-        {"name": "Maithili", "code": "mai"},
-        {"name": "Santali", "code": "sat"},
-        {"name": "Kashmiri", "code": "ks"},
-        {"name": "Nepali", "code": "ne"},
-        {"name": "Konkani", "code": "kok"},
-        {"name": "Sindhi", "code": "sd"},
-        {"name": "Sanskrit", "code": "sa"},
-        {"name": "Dogri", "code": "doi"},
-        {"name": "Manipuri", "code": "mni"},
-        {"name": "Bodo", "code": "brx"},
-    ]
-    return languages
+@router.get("/languages/")
+def get_languages():
+    """Get list of supported languages"""
+    return {"languages": get_supported_languages()}
 
 @router.post("/chat/")
 def chat(request: ChatRequest):
-    # Embed the user query
-    query_embedding = embed_text(request.query)
-    # Search Qdrant for relevant chunks (fetch more to improve recall)
-    results = search_embeddings(query_embedding, top_k=20, reference_id=request.reference_id)
+    try:
+        # Embed the user query
+        query_embedding = embed_text(request.query)
+        # Search Qdrant for relevant chunks (fetch more to improve recall)
+        results = search_embeddings(query_embedding, top_k=20, reference_id=request.reference_id)
 
-    # Build context from search results (prioritize row-style chunks if present)
-    texts = []
-    seen = set()
-    for r in results:
-        t = r.get("text", "")
-        if t:
-            if t in seen:
-                continue
-            seen.add(t)
-            texts.append(t)
-    # Cap context size to avoid overlong prompts
-    context = "\n".join(texts)[:8000]
+        # Build context from search results (prioritize row-style chunks if present)
+        texts = []
+        seen = set()
+        for r in results:
+            t = r.get("text", "") or ""
+            if t:
+                if t in seen:
+                    continue
+                seen.add(t)
+                texts.append(t)
+        # Cap context size to avoid overlong prompts
+        context = "\n".join(texts)[:8000]
 
-    # Guard: no context
-    if not context.strip():
-        response_text = "I don't know based on the current knowledge base."
-        language = request.language or "en"
+        # Guard: no context
+        if not context.strip():
+            response_text = "I don't know based on the current knowledge base."
+            language = request.language or "en"
+            if request.mode == "voice":
+                audio_base64 = text_to_speech(response_text, language)
+                if audio_base64:
+                    return ChatResponse(
+                        response_text=response_text,
+                        audio=audio_base64,
+                        video=None
+                    )
+                else:
+                    return ChatResponse(
+                        response_text=response_text + "\n\n[Note: Audio generation failed, showing text response]",
+                        audio=None,
+                        video=None
+                    )
+            elif request.mode == "video":
+                audio_base64 = text_to_speech(response_text, language)
+                video_bytes = text_audio_to_video(response_text, audio_base64)
+                bio = io.BytesIO(video_bytes)
+                headers = {
+                    "Content-Disposition": "inline; filename=response.mp4",
+                    "Accept-Ranges": "bytes",
+                }
+                return StreamingResponse(bio, media_type="video/mp4", headers=headers)
+            return ChatResponse(response_text=response_text, audio=None, video=None)
+
+        # Primary: standard RAG call with top chunks
+        top_chunks = [r.get("text", "") or "" for r in results]
+        
+        # Generate response text with error handling
+        try:
+            response_text = query_llm_with_context(request.query, top_chunks, max_chunks=8)
+        except Exception as llm_error:
+            logger.error(f"LLM error: {llm_error}")
+            # Fallback response using context
+            if top_chunks:
+                context_summary = "\n".join(top_chunks[:3])
+                response_text = f"Based on the available information:\n\n{context_summary}\n\nI found some relevant data, but couldn't generate a complete response due to a technical issue. Please try rephrasing your question."
+            else:
+                response_text = "I'm experiencing technical difficulties with the language model. Please try again in a moment."
+        
+        # Handle different response types
         if request.mode == "voice":
-            audio_bytes = text_to_speech(response_text, language=language)
-            bio = io.BytesIO(audio_bytes)
-            headers = {
-                "Content-Disposition": "inline; filename=response.mp3",
-                "Accept-Ranges": "bytes",
-            }
-            return StreamingResponse(bio, media_type="audio/mpeg", headers=headers)
+            # Generate audio using the imported TTS function
+            audio_base64 = text_to_speech(response_text, request.language or "en")
+            if audio_base64:
+                return ChatResponse(
+                    response_text=response_text,
+                    audio=audio_base64,
+                    video=None
+                )
+            else:
+                # Fallback to text if TTS fails
+                return ChatResponse(
+                    response_text=response_text + "\n\n[Note: Audio generation failed, showing text response]",
+                    audio=None,
+                    video=None
+                )
         elif request.mode == "video":
-            audio_bytes = text_to_speech(response_text, language=language)
-            video_bytes = text_audio_to_video(response_text, audio_bytes)
-            bio = io.BytesIO(video_bytes)
-            headers = {
-                "Content-Disposition": "inline; filename=response.mp4",
-                "Accept-Ranges": "bytes",
-            }
-            return StreamingResponse(bio, media_type="video/mp4", headers=headers)
-        return ChatResponse(response_text=response_text, audio=None, video=None)
-
-    # Few-shot example for tabular/row key-value extraction and synonyms mapping
-    example_context = """
-financial_year: 2020-21; budget_estimates_be_: 690500; revised_estimates_re_: 510000; actuals: 480000
-financial_year: 2021-22; budget_estimates_be_: 630000; revised_estimates_re_: 670000; actuals: 600000
-financial_year: 2022-23; budget_estimates_be_: 780000; revised_estimates_re_: 850000; actuals: 820000
-"""
-    example_qa = """
-Instruction: The Context contains rows with keys like financial_year, budget_estimates_be_, revised_estimates_re_, actuals. When asked for a value, locate the row by financial_year (or closest match like 2021-22 matches 2021/22 or 2021) and return the exact numeric value from the appropriate key. Map common phrases to keys as follows: "budget estimate" -> budget_estimates_be_, "revised estimate" -> revised_estimates_re_, "actuals" -> actuals. Return only the answer sentence with the exact value. If no matching row/key exists, say: "I don't know".
-
-User: What is the budget estimate for 2020-21?
-Answer: The budget estimate for 2020-21 is 690500.
-
-User: Give revised estimate for 2021-22.
-Answer: The revised estimate for 2021-22 is 670000.
-
-User: What were the actuals in 2022-23?
-Answer: The actuals for 2022-23 are 820000.
-"""
-    # Primary: standard RAG call with top chunks
-    top_chunks = [r.get("text", "") or "" for r in results]
-    response_text = query_llm_with_context(request.query, top_chunks, max_chunks=8)
-
-    # Fallback: deterministic extraction if model still answers with "I don't know"
-    if not response_text or response_text.strip().lower().startswith("i don't know"):
-        extracted = _extract_answer_from_context(request.query, context)
-        if extracted:
-            response_text = extracted
-
-    # Second fallback: return top relevant snippets from retrieved context
-    if not response_text or response_text.strip().lower().startswith("i don't know"):
-        snips = _snippets_from_results(request.query, results)
-        if snips:
-            response_text = snips
-
-    language = request.language or "en"
-    if request.mode == "voice":
-        audio_bytes = text_to_speech(response_text, language=language)
-        bio = io.BytesIO(audio_bytes)
-        headers = {
-            "Content-Disposition": "inline; filename=response.mp3",
-            "Accept-Ranges": "bytes",
-        }
-        return StreamingResponse(bio, media_type="audio/mpeg", headers=headers)
-    elif request.mode == "video":
-        audio_bytes = text_to_speech(response_text, language=language)
-        video_bytes = text_audio_to_video(response_text, audio_bytes)
-        bio = io.BytesIO(video_bytes)
-        headers = {
-            "Content-Disposition": "inline; filename=response.mp4",
-            "Accept-Ranges": "bytes",
-        }
-        return StreamingResponse(bio, media_type="video/mp4", headers=headers)
-    return ChatResponse(response_text=response_text, audio=None, video=None)
+            # Handle video mode if needed
+            return ChatResponse(
+                response_text=response_text,
+                audio=None,
+                video=None
+            )
+        else:
+            # Text mode
+            return ChatResponse(
+                response_text=response_text,
+                audio=None,
+                video=None
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in chat endpoint: {e}")
+        return ChatResponse(
+            response_text=f"Error: {str(e)}",
+            audio=None,
+            video=None
+        )
 
 @router.get("/tts")
 def tts(text: str = Query("Hello!"), language: str = Query("en")):
     """Simple GET endpoint to stream TTS audio for direct browser playback."""
-    audio_bytes = text_to_speech(text, language=language)
-    bio = io.BytesIO(audio_bytes)
-    headers = {
-        "Content-Disposition": "inline; filename=tts.mp3",
-        "Accept-Ranges": "bytes",
-    }
-    return StreamingResponse(bio, media_type="audio/mpeg", headers=headers)
+    audio_base64 = text_to_speech(text, language=language)
+    if audio_base64:
+        # Convert base64 back to bytes for streaming
+        audio_bytes = base64.b64decode(audio_base64)
+        bio = io.BytesIO(audio_bytes)
+        headers = {
+            "Content-Disposition": "inline; filename=tts.mp3",
+            "Accept-Ranges": "bytes",
+        }
+        return StreamingResponse(bio, media_type="audio/mpeg", headers=headers)
+    else:
+        return {"error": "TTS generation failed"}
