@@ -1,0 +1,34 @@
+*{
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Arial, sans-serif;
+  background-color: #f0f0f0;
+  color: #333;
+  padding-top: 64px;
+}
+
+.flag-bar {
+  width: 100vw;
+  height: 32px;
+}
+
+.flag-bar.top {
+  background: #ff9933; /* Saffron/Orange */
+}
+
+.flag-bar.middle {
+  background: #fff; /* White */
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flag-bar.bottom {
+  background: #138808; /* Green */
+  height: 32px;
+}
