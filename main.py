@@ -5,14 +5,17 @@ from app.routes.schemes import router as schemes_router
 from app.routes.field_discovery import router as field_discovery_router
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from bson import ObjectId
+import io
 
-from app.database import connect_to_mongo, close_mongo_connection
+from app.database import connect_to_mongo, close_mongo_connection, get_database, get_gridfs_bucket
 from app.models import UserProfile, CheckResponse, UploadSchemeRequest, UploadSchemeResponse, SchemeInfo
 from app.services import SchemeService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(_name_)
+logger = logging.getLogger(__name__)
 
 from contextlib import asynccontextmanager
 
@@ -113,6 +116,7 @@ async def upload_scheme(request: UploadSchemeRequest):
         logger.error(f"Error uploading scheme: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+
 @app.get("/govmatch/download-pdf/{scheme_id}")
 async def download_scheme_pdf(scheme_id: str):
     """Download PDF file for a specific scheme"""
@@ -142,7 +146,7 @@ async def download_scheme_pdf(scheme_id: str):
             raise HTTPException(status_code=404, detail="Invalid PDF file")
         
         # Create proper filename
-        safe_filename = scheme_id.replace(" ", "").replace("/", "")
+        safe_filename = scheme_id.replace(" ", "_").replace("/", "_")
         
         # Create streaming response for browser download
         def generate_pdf():
@@ -163,6 +167,7 @@ async def download_scheme_pdf(scheme_id: str):
     except Exception as e:
         logger.error(f"Error downloading PDF for scheme {scheme_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @app.post("/govmatch/upload_scheme_simple")
 async def upload_scheme_simple(
@@ -268,6 +273,6 @@ async def health_check():
     return {"status": "healthy", "service": "govmatch-backend"}
 
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

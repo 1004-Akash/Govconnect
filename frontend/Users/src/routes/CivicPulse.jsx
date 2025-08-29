@@ -1,4 +1,4 @@
-import Card from '../components/Card';
+import React, { useState } from 'react';
 
 export default function CivicPulse() {
     const [form, setForm] = useState({
@@ -27,19 +27,38 @@ export default function CivicPulse() {
         Object.entries(form).forEach(([k, v]) => {
             if (v !== null && v !== undefined && v !== '') data.append(k, v);
         });
-        await fetch('http://localhost:8000/civicpulse/reports', {
-            method: 'POST',
-            body: data
-        });
-        setSuccess(true);
-        setForm({ text: '', lat: '', lon: '', severity_tag: 0.5, category: 'General', infra_age: '', rainfall: '', image: null });
+        
+        try {
+            const response = await fetch('http://localhost:8000/civicpulse/reports', {
+                method: 'POST',
+                body: data
+            });
+            
+            if (response.ok) {
+                setSuccess(true);
+                setForm({ 
+                    text: '', 
+                    lat: '', 
+                    lon: '', 
+                    severity_tag: 0.5, 
+                    category: 'General', 
+                    infra_age: '', 
+                    rainfall: '', 
+                    image: null 
+                });
+            } else {
+                console.error('Failed to submit issue');
+            }
+        } catch (error) {
+            console.error('Error submitting issue:', error);
+        }
     };
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
             <div className="container mx-auto px-4 py-8">
                 <div className="max-w-2xl mx-auto">
-                    <Card className="p-8">
+                    <div className="rounded-3xl border bg-white dark:bg-slate-900/70 backdrop-blur supports-[backdrop-filter]:bg-white/60 dark:supports-[backdrop-filter]:bg-slate-900/60 shadow-lg p-8">
                         <div className="text-center mb-8">
                             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900 dark:text-white mb-4">
                                 Welcome to CivicPulse
@@ -72,7 +91,7 @@ export default function CivicPulse() {
                                         Description:
                                     </label>
                                     <textarea 
-                                        className="input-round min-h-[100px] resize-vertical"
+                                        className="w-full rounded-full border bg-white/90 dark:bg-slate-900 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400 min-h-[100px] resize-vertical"
                                         name="text" 
                                         value={form.text} 
                                         onChange={handleChange} 
@@ -87,7 +106,7 @@ export default function CivicPulse() {
                                             Latitude:
                                         </label>
                                         <input 
-                                            className="input-round"
+                                            className="w-full rounded-full border bg-white/90 dark:bg-slate-900 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                                             name="lat" 
                                             type="number" 
                                             value={form.lat} 
@@ -101,7 +120,7 @@ export default function CivicPulse() {
                                             Longitude:
                                         </label>
                                         <input 
-                                            className="input-round"
+                                            className="w-full rounded-full border bg-white/90 dark:bg-slate-900 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                                             name="lon" 
                                             type="number" 
                                             value={form.lon} 
@@ -118,7 +137,7 @@ export default function CivicPulse() {
                                             Severity (0-1):
                                         </label>
                                         <input 
-                                            className="input-round"
+                                            className="w-full rounded-full border bg-white/90 dark:bg-slate-900 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                                             name="severity_tag" 
                                             type="number" 
                                             min="0" 
@@ -134,7 +153,7 @@ export default function CivicPulse() {
                                             Category:
                                         </label>
                                         <select 
-                                            className="input-round"
+                                            className="w-full rounded-full border bg-white/90 dark:bg-slate-900 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                                             name="category" 
                                             value={form.category} 
                                             onChange={handleChange}
@@ -153,7 +172,7 @@ export default function CivicPulse() {
                                             Infrastructure Age (years):
                                         </label>
                                         <input 
-                                            className="input-round"
+                                            className="w-full rounded-full border bg-white/90 dark:bg-slate-900 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                                             name="infra_age" 
                                             type="number" 
                                             value={form.infra_age} 
@@ -166,7 +185,7 @@ export default function CivicPulse() {
                                             Rainfall (mm):
                                         </label>
                                         <input 
-                                            className="input-round"
+                                            className="w-full rounded-full border bg-white/90 dark:bg-slate-900 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400"
                                             name="rainfall" 
                                             type="number" 
                                             value={form.rainfall} 
@@ -181,7 +200,7 @@ export default function CivicPulse() {
                                         Image (optional):
                                     </label>
                                     <input 
-                                        className="input-round file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 dark:file:bg-emerald-900/20 dark:file:text-emerald-400"
+                                        className="w-full rounded-full border bg-white/90 dark:bg-slate-900 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 dark:file:bg-emerald-900/20 dark:file:text-emerald-400"
                                         name="image" 
                                         type="file" 
                                         accept="image/*" 
@@ -190,14 +209,14 @@ export default function CivicPulse() {
                                 </div>
 
                                 <button 
-                                    className="btn-primary w-full py-3 text-lg"
+                                    className="inline-flex items-center gap-2 rounded-full bg-emerald-600 text-white px-4 py-2 md:px-5 md:py-2.5 hover:bg-emerald-700 active:scale-[.99] disabled:opacity-50 w-full py-3 text-lg"
                                     type="submit"
                                 >
                                     Submit Issue
                                 </button>
                             </form>
                         </div>
-                    </Card>
+                    </div>
                 </div>
             </div>
         </div>

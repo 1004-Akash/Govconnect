@@ -402,6 +402,79 @@ app.include_router(news_router, prefix="/api")
 app.include_router(reactions_router, prefix="/api")
 app.include_router(civicpulse_router, prefix="/civicpulse")
 
+# Add GovMatch endpoints
+@app.post("/govmatch/check")
+async def check_eligibility(request: dict):
+    """Check user eligibility against government schemes"""
+    try:
+        if "profile" not in request:
+            raise HTTPException(status_code=400, detail="Missing 'profile' in request body")
+        
+        profile_data = request["profile"]
+        
+        # Simple eligibility logic
+        eligible_schemes = []
+        near_misses = []
+        
+        # Check age
+        age = profile_data.get('age')
+        if age and int(age) >= 18:
+            eligible_schemes.append({
+                "scheme_id": "pm_kisan",
+                "scheme_name": "Pradhan Mantri Kisan Samman Nidhi",
+                "eligible": True,
+                "reasons": ["Age requirement met (18+)"],
+                "required_documents": ["Aadhaar", "Land records"],
+                "next_steps": "Visit nearest bank branch",
+                "website_url": "https://pmkisan.gov.in/",
+                "pdf_download_url": "/govmatch/download-pdf/pm_kisan"
+            })
+        else:
+            near_misses.append({
+                "scheme_id": "pm_kisan",
+                "failed_conditions": ["Age below 18 years"]
+            })
+        
+        # Check student status
+        if profile_data.get('is_student'):
+            eligible_schemes.append({
+                "scheme_id": "scholarship",
+                "scheme_name": "Central Scholarship Scheme",
+                "eligible": True,
+                "reasons": ["Student status confirmed"],
+                "required_documents": ["Student ID", "Income certificate"],
+                "next_steps": "Apply online through National Scholarship Portal",
+                "website_url": "https://scholarships.gov.in/",
+                "pdf_download_url": "/govmatch/download-pdf/scholarship"
+            })
+        
+        return {
+            "eligible_schemes": eligible_schemes,
+            "near_misses": near_misses
+        }
+        
+    except Exception as e:
+        print(f"Error checking eligibility: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/govmatch/download-pdf/{scheme_id}")
+async def download_scheme_pdf(scheme_id: str):
+    """Download PDF for a specific scheme"""
+    try:
+        from fastapi.responses import RedirectResponse
+        
+        # Redirect to official websites
+        if scheme_id == "pm_kisan":
+            return RedirectResponse(url="https://pmkisan.gov.in/Documents/PM-KISAN-Scheme-Guidelines.pdf")
+        elif scheme_id == "scholarship":
+            return RedirectResponse(url="https://scholarships.gov.in/")
+        else:
+            raise HTTPException(status_code=404, detail="Scheme not found")
+            
+    except Exception as e:
+        print(f"Error downloading PDF for scheme {scheme_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 # Dashboard data endpoint
 @app.get("/dashboard-data")
 async def get_dashboard_data():

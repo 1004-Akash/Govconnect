@@ -6,7 +6,7 @@ from bson import ObjectId
 
 class PyObjectId(ObjectId):
     @classmethod
-    def _get_pydantic_core_schema_(cls, source_type, handler):
+    def __get_pydantic_core_schema__(cls, source_type, handler):
         from pydantic_core import core_schema
         return core_schema.no_info_plain_validator_function(cls.validate)
 
@@ -66,6 +66,7 @@ class RulesJSON(BaseModel):
     required_documents: List[str] = []
     benefit_outline: str = ""
     next_steps: str = ""
+    website_url: str = ""
 
 
 class SchemeRulesDoc(BaseModel):
@@ -94,6 +95,8 @@ class EligibleScheme(BaseModel):
     reasons: List[str] = []
     required_documents: List[str] = []
     next_steps: str = ""
+    website_url: str = ""
+    pdf_download_url: str = ""
 
 
 class NearMiss(BaseModel):
@@ -111,6 +114,7 @@ class SchemeInfo(BaseModel):
     scheme_name: str
     last_updated: datetime
     has_rules: bool
+    website_url: str = ""
 
 
 class UploadSchemeRequest(BaseModel):

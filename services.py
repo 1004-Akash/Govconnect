@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorGridFSBucket
+import httpx
 
 from app.database import get_database, get_gridfs_bucket
 from app.models import SchemeRulesDoc, RulesJSON, UserProfile, EligibleScheme, NearMiss, SchemeInfo
@@ -11,12 +12,89 @@ from app.pdf_extractor import PDFExtractor
 from app.openrouter_client import OpenRouterClient
 from app.rules_evaluator import RulesEvaluator
 from app.nlp_extractor import NLPRuleExtractor
+from app.config import settings
 
-logger = logging.getLogger(_name_)
+logger = logging.getLogger(__name__)
 
 
 class SchemeService:
     """Service layer for scheme management and evaluation"""
+    
+    @staticmethod
+    async def discover_scheme_website(scheme_name: str) -> Optional[str]:
+        """Discover official government website for a scheme"""
+        try:
+            # Normalize scheme name
+            normalized_name = scheme_name.lower().replace(" ", "_").replace("-", "_")
+            normalized_name = normalized_name.replace("�", "").replace("'", "").replace("(", "").replace(")", "").replace(".", "")
+            
+            # Comprehensive scheme mappings
+            scheme_mappings = {
+                "pm kisan": "https://pmkisan.gov.in/",
+                "pradhan mantri kisan samman nidhi": "https://pmkisan.gov.in/",
+                "ayushman bharat": "https://pmjay.gov.in/",
+                "pradhan mantri jan arogya yojana": "https://pmjay.gov.in/",
+                "pm jay": "https://pmjay.gov.in/",
+                "pradhan mantri awaas yojana": "https://pmaymis.gov.in/",
+                "pmay": "https://pmaymis.gov.in/",
+                "pradhan mantri fasal bima yojana": "https://pmfby.gov.in/",
+                "pmfby": "https://pmfby.gov.in/",
+                "pradhan mantri krishi sinchayee yojana": "https://www.india.gov.in/spotlight/pradhan-mantri-krishi-sinchayee-yojana",
+                "pmksy": "https://www.india.gov.in/spotlight/pradhan-mantri-krishi-sinchayee-yojana",
+                "pradhan mantri jeevan jyoti bima yojana": "https://www.jansuraksha.gov.in/shree/SchemeDetails?SchemeId=2",
+                "pmjjby": "https://www.jansuraksha.gov.in/shree/SchemeDetails?SchemeId=2",
+                "pradhan mantri jan dhan yojana": "https://www.pmjdy.gov.in/",
+                "pmjdy": "https://www.pmjdy.gov.in/",
+                "pradhan mantri gram sadak yojana": "https://www.india.gov.in/spotlight/pradhan-mantri-gram-sadak-yojana",
+                "pmgsy": "https://www.india.gov.in/spotlight/pradhan-mantri-gram-sadak-yojana",
+                "pradhan mantri rashtriya swasthya suraksha mission": "https://nhm.gov.in/",
+                "national health mission": "https://nhm.gov.in/",
+                "nhm": "https://nhm.gov.in/",
+                "mission shakti": "https://www.india.gov.in/spotlight/mission-shakti",
+                "pradhan mantri vidyalaxmi": "https://www.education.gov.in/",
+                "pm vidyalaxmi": "https://www.education.gov.in/",
+                "pradhan mantri uchchatar shiksha protsahan": "https://www.ugc.gov.in/",
+                "pm usp": "https://www.ugc.gov.in/",
+                "ugc": "https://www.ugc.gov.in/",
+                "prime minister fellowship scheme": "https://www.dst.gov.in/",
+                "pm fellowship": "https://www.dst.gov.in/",
+                "pradhan mantri adarsh gram yojana": "https://www.india.gov.in/spotlight/pradhan-mantri-adarsh-gram-yojana",
+                "pmgay": "https://www.india.gov.in/spotlight/pradhan-mantri-adarsh-gram-yojana",
+                "prime minister scholarship": "https://scholarships.gov.in/",
+                "scholarship scheme": "https://scholarships.gov.in/",
+                "rpf scholarship": "https://scholarships.gov.in/",
+                "central police force scholarship": "https://scholarships.gov.in/",
+                "pradhan mantri garib kalyan": "https://www.mohfw.gov.in/",
+                "covid insurance": "https://www.mohfw.gov.in/",
+                "pradhan mantri matasya sampada yojana": "https://dof.gov.in/",
+                "pmmsy": "https://dof.gov.in/",
+                "capf scholarship": "https://scholarships.gov.in/"
+            }
+            
+            # Try exact matches first
+            for key, url in scheme_mappings.items():
+                if key in normalized_name.replace("_", " "):
+                    return url
+            
+            # Pattern matching for common schemes
+            if "prime_minister" in normalized_name or "pradhan_mantri" in normalized_name:
+                if "health" in normalized_name or "medical" in normalized_name:
+                    return "https://pmjay.gov.in/"
+                elif "education" in normalized_name or "shiksha" in normalized_name:
+                    return "https://www.education.gov.in/"
+                elif "rural" in normalized_name or "gramin" in normalized_name:
+                    return "https://rural.nic.in/"
+                elif "scholarship" in normalized_name:
+                    return "https://scholarships.gov.in/"
+                else:
+                    return "https://www.pmindia.gov.in/"
+            
+            logger.info(f"No specific mapping found for: {scheme_name}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error discovering website for {scheme_name}: {e}")
+            return None
     
     @staticmethod
     async def upload_scheme_pdf(scheme_id: str, title: str, pdf_base64: str, force: bool = False) -> Tuple[bool, str]:
@@ -93,6 +171,14 @@ class SchemeService:
                 })
                 return False, f"Invalid rules JSON: {validation_message}"
             
+            # Discover website URL for the scheme
+            website_url = await SchemeService.discover_scheme_website(title)
+            if website_url:
+                rules_data["website_url"] = website_url
+                logger.info(f"Discovered website URL for {title}: {website_url}")
+            else:
+                logger.warning(f"No website URL found for {title}")
+            
             # Create RulesJSON model
             rules_json = RulesJSON(**rules_data)
             
@@ -132,11 +218,13 @@ class SchemeService:
             schemes = []
             
             async for doc in cursor:
+                website_url = doc.get("rules_json", {}).get("website_url", "")
                 scheme_info = SchemeInfo(
                     scheme_id=doc["scheme_id"],
                     scheme_name=doc["scheme_name"],
                     last_updated=doc["extracted_at"],
-                    has_rules=(doc["status"] == "ready")
+                    has_rules=(doc["status"] == "ready"),
+                    website_url=website_url
                 )
                 schemes.append(scheme_info)
             
@@ -166,13 +254,19 @@ class SchemeService:
                     )
                     
                     if eligible:
+                        # Get website URL and create PDF download URL using document scheme_id (not rules_json scheme_id)
+                        website_url = rules_json.website_url or ""
+                        pdf_download_url = f"/govmatch/download-pdf/{rules_doc['scheme_id']}"
+                        
                         eligible_scheme = EligibleScheme(
                             scheme_id=rules_json.scheme_id,
                             scheme_name=rules_json.scheme_name,
                             eligible=True,
                             reasons=passed_conditions,
                             required_documents=rules_json.required_documents,
-                            next_steps=rules_json.next_steps
+                            next_steps=rules_json.next_steps,
+                            website_url=website_url,
+                            pdf_download_url=pdf_download_url
                         )
                         eligible_schemes.append(eligible_scheme)
                     else:

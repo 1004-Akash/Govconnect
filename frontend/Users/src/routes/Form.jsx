@@ -74,13 +74,42 @@ export default function Form() {
         setResult(null);
         try {
             const payload = { profile: normalizeProfile(profile) };
-            const { data } = await axios.post(`${BACKEND_URL}/govmatch/govmatch/check`, payload);
+            const { data } = await axios.post(`${BACKEND_URL}/govmatch/check`, payload);
             setResult(data);
         } catch (err) {
             const msg = err?.response?.data?.detail || err.message || 'Request failed';
             setError(msg);
         } finally {
             setLoading(false);
+        }
+    };
+
+    // Add these new functions
+    const downloadPDF = async (schemeId) => {
+        try {
+            const response = await axios.get(`${BACKEND_URL}/govmatch/download-pdf/${schemeId}`, {
+                responseType: 'blob'
+            });
+            
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `${schemeId}.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Error downloading PDF:', error);
+            alert('Failed to download PDF. Please try again.');
+        }
+    };
+
+    const openWebsite = (url) => {
+        if (url) {
+            window.open(url, '_blank');
+        } else {
+            alert('Website URL not available for this scheme.');
         }
     };
 
@@ -469,7 +498,7 @@ export default function Form() {
                                     <div className="space-y-6">
                                         <div>
                                             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
-                                                Matched Schemes
+                                                 Eligible Schemes ({(result.eligible_schemes || []).length})
                                             </h3>
                                             {(result.eligible_schemes || []).length === 0 ? (
                                                 <p className="text-slate-500 dark:text-slate-400">No exact matches found.</p>
@@ -477,31 +506,77 @@ export default function Form() {
                                                 <div className="space-y-4">
                                                     {(result.eligible_schemes || []).map((scheme, idx) => (
                                                         <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-                                                            <h4 className="font-semibold text-slate-900 dark:text-white mb-2">
-                                                                {scheme.scheme_name || scheme.scheme_id}
-                                                            </h4>
+                                                            <div className="flex items-start justify-between mb-3">
+                                                                <h4 className="font-semibold text-slate-900 dark:text-white text-lg">
+                                                                    {scheme.scheme_name || scheme.scheme_id}
+                                                                </h4>
+                                                                <div className="flex items-center gap-2">
+                                                                    {/* PDF Download Button */}
+                                                                    <button
+                                                                        onClick={() => downloadPDF(scheme.scheme_id)}
+                                                                        className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-full hover:bg-blue-700 transition-colors"
+                                                                        title="Download Scheme PDF"
+                                                                    >
+                                                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                                            <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                                        </svg>
+                                                                        PDF
+                                                                    </button>
+                                                                    
+                                                                    {/* Website Link Button */}
+                                                                    {scheme.website_url && (
+                                                                        <button
+                                                                            onClick={() => openWebsite(scheme.website_url)}
+                                                                            className="inline-flex items-center gap-2 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-full hover:bg-green-700 transition-colors"
+                                                                            title="Visit Official Website"
+                                                                        >
+                                                                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                                                <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
+                                                                                <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
+                                                                            </svg>
+                                                                            Website
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            {/* Eligibility Reasons */}
                                                             {scheme.reasons && scheme.reasons.length > 0 && (
-                                                                <div className="mb-2">
-                                                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Reasons: </span>
-                                                                    <span className="text-sm text-slate-700 dark:text-slate-300">
-                                                                        {scheme.reasons.join('; ')}
-                                                                    </span>
+                                                                <div className="mb-3 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg">
+                                                                    <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200 mb-2">
+                                                                        ✅ Why you're eligible:
+                                                                    </p>
+                                                                    <ul className="list-disc list-inside text-sm text-emerald-700 dark:text-emerald-300 space-y-1">
+                                                                        {scheme.reasons.map((reason, idx) => (
+                                                                            <li key={idx}>{reason}</li>
+                                                                        ))}
+                                                                    </ul>
                                                                 </div>
                                                             )}
+                                                            
+                                                            {/* Required Documents */}
                                                             {scheme.required_documents && scheme.required_documents.length > 0 && (
-                                                                <div className="mb-2">
-                                                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Documents: </span>
-                                                                    <span className="text-sm text-slate-700 dark:text-slate-300">
-                                                                        {scheme.required_documents.join(', ')}
-                                                                    </span>
+                                                                <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                                                                    <p className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+                                                                         Required Documents:
+                                                                    </p>
+                                                                    <ul className="list-disc list-inside text-sm text-blue-700 dark:text-blue-300 space-y-1">
+                                                                        {scheme.required_documents.map((doc, idx) => (
+                                                                            <li key={idx}>{doc}</li>
+                                                                        ))}
+                                                                    </ul>
                                                                 </div>
                                                             )}
+                                                            
+                                                            {/* Next Steps */}
                                                             {scheme.next_steps && (
-                                                                <div>
-                                                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Next Steps: </span>
-                                                                    <span className="text-sm text-slate-700 dark:text-slate-300">
+                                                                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                                                                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-2">
+                                                                        🚀 Next Steps:
+                                                                    </p>
+                                                                    <p className="text-sm text-amber-700 dark:text-amber-300">
                                                                         {scheme.next_steps}
-                                                                    </span>
+                                                                    </p>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -510,20 +585,23 @@ export default function Form() {
                                             )}
                                         </div>
 
+                                        {/* Near Misses Section */}
                                         {(result.near_misses || []).length > 0 && (
                                             <div>
                                                 <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
-                                                    Near Misses
+                                                    ⚠️ Near Misses ({(result.near_misses || []).length})
                                                 </h3>
-                                                <div className="space-y-2">
+                                                <div className="space-y-3">
                                                     {result.near_misses.map((miss, i) => (
-                                                        <div key={i} className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
-                                                            <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                                                        <div key={i} className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+                                                            <div className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                                                                 {miss.scheme_id}
                                                             </div>
-                                                            <div className="text-xs text-slate-600 dark:text-slate-400">
-                                                                Failed conditions: {miss.failed_conditions?.join(', ')}
-                                                            </div>
+                                                            {miss.failed_conditions && miss.failed_conditions.length > 0 && (
+                                                                <div className="text-xs text-slate-600 dark:text-slate-400">
+                                                                    <span className="font-medium">Failed conditions:</span> {miss.failed_conditions.join(', ')}
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     ))}
                                                 </div>
