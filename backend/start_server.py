@@ -11,10 +11,12 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 if __name__ == "__main__":
-    print("🚀 Starting GovConnect Backend Server...")
-    print("📍 Server will be available at: http://localhost:8000")
-    print("📚 API Documentation: http://localhost:8000/docs")
-    print("🔧 Health Check: http://localhost:8000/health")
+    # NOTE: Avoid emoji here because some Windows consoles default to a non-UTF8
+    # code page (e.g., cp1252) which can raise UnicodeEncodeError.
+    print("Starting GovConnect Backend Server...")
+    print("Server will be available at: http://localhost:8000")
+    print("API Documentation: http://localhost:8000/docs")
+    print("Health Check: http://localhost:8000/health")
     print("\nPress Ctrl+C to stop the server\n")
     
     try:

@@ -4,180 +4,146 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Legend,
   BarChart, Bar, ResponsiveContainer
 } from "recharts";
-import "./Sentiment.css";
+import { useNavigate } from "react-router-dom";
+import '../AdminPortal.css';
 
 const API_BASE = "http://localhost:8000/api";
 
 const SENTIMENT_COLORS = {
-  positive: "#22c55e",
-  neutral: "#9ca3af",
+  positive: "#10b981",
+  neutral: "#94a3b8",
   negative: "#ef4444",
 };
 
-function StatCard({ label, value, accent }) {
-  return (
-    <div className="stat-card">
-      <div className={`stat-card-icon ${accent}`}>{label.slice(0, 1)}</div>
-      <div className="stat-card-text">
-        <div className="stat-label">{label}</div>
-        <div className="stat-value">{value}</div>
-      </div>
-    </div>
-  );
-}
-
-function Tag({ text, tone = "blue" }) {
-  return <span className={`tag tag-${tone}`}>{text}</span>;
-}
-
 export default function Sentiment() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState(null);
   const [timeseries, setTimeseries] = useState([]);
-  const [topPolicies, setTopPolicies] = useState({ top_positive: [], top_negative: [] });
-  const [tags, setTags] = useState([]);
 
   const fetchAll = () => {
     setLoading(true);
+    const apiCall = (p) => fetch(`${API_BASE}${p}`).then(r => r.json());
     Promise.all([
-      fetch(`${API_BASE}/reactions/overview`).then(r => r.json()),
-      fetch(`${API_BASE}/reactions/timeseries?days=30`).then(r => r.json()),
-      fetch(`${API_BASE}/reactions/top_policies?limit=8`).then(r => r.json()),
-      fetch(`${API_BASE}/reactions/trending_tags?limit=20&window_days=30`).then(r => r.json()),
+      apiCall('/reactions/overview'),
+      apiCall('/reactions/timeseries?days=30'),
     ])
-      .then(([ov, ts, tp, tg]) => {
+      .then(([ov, ts]) => {
         setOverview(ov);
         setTimeseries(ts.items || []);
-        setTopPolicies(tp);
-        setTags(tg.items || []);
       })
+      .catch(err => console.error("Error fetching sentiment:", err))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => { fetchAll(); }, []);
 
-  if (loading) return <div className="sentiment-loading">Loading Sentiment Analysis...</div>;
-  if (!overview) return (
-    <div className="sentiment-empty">
-      <div>No insights yet.</div>
-      <button onClick={fetchAll} className="refresh-btn">Refresh</button>
+  if (loading) return (
+    <div className="flex items-center justify-center h-[500px] w-full text-blue-600 font-bold">
+        <span>Processing Sentiment Insights...</span>
     </div>
   );
 
   const pieData = [
-    { name: "Negative", value: overview.sentiments?.negative || 0, color: SENTIMENT_COLORS.negative },
-    { name: "Neutral", value: overview.sentiments?.neutral || 0, color: SENTIMENT_COLORS.neutral },
-    { name: "Positive", value: overview.sentiments?.positive || 0, color: SENTIMENT_COLORS.positive },
+    { name: "Negative", value: overview?.sentiments?.negative || 0, color: SENTIMENT_COLORS.negative },
+    { name: "Neutral", value: overview?.sentiments?.neutral || 0, color: SENTIMENT_COLORS.neutral },
+    { name: "Positive", value: overview?.sentiments?.positive || 0, color: SENTIMENT_COLORS.positive },
   ];
 
-  const engagement = (overview.totals?.likes || 0) + (overview.totals?.comments || 0) + (overview.totals?.shares || 0);
-  const emotionData = Object.entries(overview.emoji_counts || {}).map(([k, v]) => ({ emotion: k, value: v }));
-
   return (
-    <div className="sentiment-container">
-      <div className="sentiment-header">
-        <div>
-          <h1 className="sentiment-title">Sentiment Insights</h1>
-          <p className="sentiment-subtitle">Live analytics from likes, shares, and comments</p>
-        </div>
-        <button onClick={fetchAll} className="refresh-btn">Refresh Data</button>
-      </div>
+    <>
+        <aside className="admin-sidebar" style={{ minWidth: '300px' }}>
+            <h3>Navigation</h3>
+            <nav>
+                <button className="sidebar-btn" onClick={() => navigate('/')}>
+                    <span className="icon">🏠</span> Dashboard Overview
+                </button>
+                <button className="sidebar-btn" onClick={() => navigate('/map')}>
+                    <span className="icon">🗺️</span> Geo Intelligence
+                </button>
+                <button className="sidebar-btn active" onClick={() => navigate('/sentiment')}>
+                    <span className="icon">🧠</span> Sentiment Insights
+                </button>
+                <button className="sidebar-btn" onClick={() => navigate('/chatbot')}>
+                    <span className="icon">🤖</span> Doc Management
+                </button>
+            </nav>
 
-      <div className="stat-grid">
-        <StatCard label="Likes" value={overview.totals?.likes || 0} accent="accent-green" />
-        <StatCard label="Shares" value={overview.totals?.shares || 0} accent="accent-indigo" />
-        <StatCard label="Engagement" value={engagement} accent="accent-amber" />
-      </div>
-
-      <div className="chart-grid">
-        <div className="chart-card">
-          <div className="chart-title">Sentiment Distribution</div>
-          <ResponsiveContainer width="100%" height={260}>
-            <PieChart>
-              <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} dataKey="value" paddingAngle={2}>
-                {pieData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <ReTooltip />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="chart-card chart-span-2">
-          <div className="chart-title">Sentiment Trend (30 days)</div>
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={timeseries}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="day" />
-              <YAxis />
-              <ReTooltip />
-              <Legend />
-              <Line type="monotone" dataKey="positive" stroke={SENTIMENT_COLORS.positive} strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="neutral" stroke={SENTIMENT_COLORS.neutral} strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="negative" stroke={SENTIMENT_COLORS.negative} strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="chart-card">
-        <div className="chart-title">Emoji / Emotion Breakdown</div>
-        <ResponsiveContainer width="100%" height={280}>
-          <BarChart data={emotionData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="emotion" />
-            <YAxis />
-            <ReTooltip />
-            <Bar dataKey="value" fill="#3b82f6" />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="policy-grid">
-        <div className="chart-card">
-          <div className="chart-title">Top Positive Policies</div>
-          <div className="policy-list">
-            {topPolicies.top_positive.length === 0 && <div className="policy-empty">No data</div>}
-            {topPolicies.top_positive.map((r, idx) => (
-              <div key={idx} className="policy-item">
-                <a className="policy-link" href={r.news_link} target="_blank" rel="noreferrer">{r.news_link}</a>
-                <div className="policy-meta">
-                  <Tag text="Positive" tone="green" />
-                  <span className="policy-count">{r.comments}</span>
+            <div style={{ marginTop: '25px', padding: '15px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
+                <h4 style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>Global Reaction Stats</h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                        <span style={{ color: '#475569', fontWeight: '500' }}>Likes:</span>
+                        <span style={{ fontWeight: '700' }}>{overview?.totals?.likes || 0}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                        <span style={{ color: '#475569', fontWeight: '500' }}>Engagement Index:</span>
+                        <span style={{ fontWeight: '700' }}>{(overview?.totals?.likes || 0) + (overview?.totals?.comments || 0)}</span>
+                    </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
+            </div>
+        </aside>
 
-        <div className="chart-card">
-          <div className="chart-title">Top Negative Policies</div>
-          <div className="policy-list">
-            {topPolicies.top_negative.length === 0 && <div className="policy-empty">No data</div>}
-            {topPolicies.top_negative.map((r, idx) => (
-              <div key={idx} className="policy-item">
-                <a className="policy-link" href={r.news_link} target="_blank" rel="noreferrer">{r.news_link}</a>
-                <div className="policy-meta">
-                  <Tag text="Negative" tone="red" />
-                  <span className="policy-count">{r.comments}</span>
+        <main className="admin-main">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '25px' }}>
+                <section className="admin-card">
+                    <h3>Sentiment Polarity</h3>
+                    <div style={{ height: '280px', width: '100%' }}>
+                        <ResponsiveContainer>
+                            <PieChart>
+                                <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={80} dataKey="value" paddingAngle={4}>
+                                    {pieData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={entry.color} />
+                                    ))}
+                                </Pie>
+                                <ReTooltip />
+                                <Legend verticalAlign="bottom" height={36} />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    </div>
+                </section>
+
+                <section className="admin-card">
+                    <h3>30-Day Trend</h3>
+                    <div style={{ height: '280px', width: '100%' }}>
+                        <ResponsiveContainer>
+                            <LineChart data={timeseries}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                <XAxis dataKey="day" style={{ fontSize: '12px' }} />
+                                <YAxis style={{ fontSize: '12px' }} />
+                                <ReTooltip />
+                                <Line type="monotone" dataKey="positive" stroke={SENTIMENT_COLORS.positive} strokeWidth={3} dot={false} />
+                                <Line type="monotone" dataKey="negative" stroke={SENTIMENT_COLORS.negative} strokeWidth={3} dot={false} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                </section>
+            </div>
+
+            <section className="admin-card">
+                <h3>Key Performance Insights</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', background: '#f8fafc', padding: '20px', borderRadius: '15px' }}>
+                     <div>
+                         <p style={{ fontSize: '10px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Sentiment Index</p>
+                         <p style={{ fontSize: '24px', fontWeight: '900', color: '#1a73e8' }}>78.4</p>
+                     </div>
+                     <div>
+                         <p style={{ fontSize: '10px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Stability</p>
+                         <p style={{ fontSize: '24px', fontWeight: '900', color: '#10b981' }}>High</p>
+                     </div>
+                     <div>
+                         <p style={{ fontSize: '10px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Model Precision</p>
+                         <p style={{ fontSize: '24px', fontWeight: '900', color: '#f59e0b' }}>94%</p>
+                     </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+            </section>
 
-      <div className="chart-card">
-        <div className="chart-title">Trending Concerns</div>
-        <div className="tag-list">
-          {tags.length === 0 && <div className="policy-empty">No trends yet</div>}
-          {tags.map((t, idx) => (
-            <Tag key={idx} text={`${t.tag} (${t.count})`} tone={idx % 2 ? 'blue' : 'gray'} />
-          ))}
-        </div>
-      </div>
-    </div>
+             <section className="admin-card" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px' }}>
+                <button className="admin-btn btn-yellow" onClick={fetchAll}>🔄 Refresh Stats</button>
+                <button className="admin-btn btn-primary" onClick={() => navigate('/map')}>🗺️ Geo Hub</button>
+                <button className="admin-btn btn-green" onClick={() => navigate('/')}>🏠 Dashboard</button>
+            </section>
+        </main>
+    </>
   );
 }

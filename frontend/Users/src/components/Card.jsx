@@ -11,9 +11,9 @@ export default function Card({
   return (
     <div 
       className={cn(
-        'card-shell',
+        'glass-card overflow-hidden',
         padding,
-        hover && 'hover:shadow-xl',
+        hover && 'hover:-translate-y-1',
         className
       )}
       {...props}

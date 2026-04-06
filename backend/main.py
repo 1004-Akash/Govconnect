@@ -7,10 +7,13 @@ import pickle
 from CivicPulse.gsheet_utils import log_to_gsheet_dict
 
 # Download required corpora for nltk and textblob
-nltk.download('punkt')
-nltk.download('averaged_perceptron_tagger')
-nltk.download('vader_lexicon')
-download_corpora.download_all()
+try:
+    nltk.download('punkt', quiet=True)
+    nltk.download('averaged_perceptron_tagger', quiet=True)
+    nltk.download('vader_lexicon', quiet=True)
+    print("NLTK data loaded successfully.")
+except Exception as e:
+    print(f"Skipping NLTK downloads due to: {e}")
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Query, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,11 +34,20 @@ from pymongo import MongoClient
 from bson import ObjectId
 
 # MongoDB setup
-client = MongoClient("mongodb://localhost:27017/")
-db = client["civicpulse"]
-reports_col = db["reports"]
-clusters_col = db["clusters"]
-assignments_col = db["assignments"]
+from mongo import get_client, get_db
+try:
+    client = get_client()
+    db = get_db()
+    reports_col = db["reports"]
+    clusters_col = db["clusters"]
+    assignments_col = db["assignments"]
+    print("MongoDB connection established.")
+except Exception as e:
+    print(f"Error connecting to MongoDB: {e}")
+    # Define dummy collections to prevent startup crash
+    reports_col = None
+    clusters_col = None
+    assignments_col = None
 
 civicpulse_router = APIRouter()
 
@@ -372,12 +384,17 @@ app = FastAPI(title="Government RAG Chatbot Backend")
 # Mount GovMatch sub-app from external path
 try:
     import sys
-    EXTERNAL_GOVMATCH_PARENT = r"D:\Government\govmatch"
+    # Get the parent directory of GoveConnectAI
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)
+    EXTERNAL_GOVMATCH_PARENT = os.path.join(project_root, "govmatch")
+    
     if EXTERNAL_GOVMATCH_PARENT not in sys.path:
         sys.path.insert(0, EXTERNAL_GOVMATCH_PARENT)
-    from app.main import app as govmatch_app  # app is inside D:\Government\govmatch
+    
+    from app.main import app as govmatch_app
     app.mount("/govmatch", govmatch_app)
-    print("[govmatch] Mounted external app at /govmatch from D:\\Government\\govmatch\\app")
+    print(f"[govmatch] Mounted external app at /govmatch from {EXTERNAL_GOVMATCH_PARENT}")
 except Exception as _e:
     print(f"[govmatch] Skipped mounting external app: {_e}")
 
@@ -581,6 +598,55 @@ async def get_dashboard_data():
             "departmentBreakdown": {},
             "totalReports": 0
         }
+
+# API to report a concern
+class Concern(BaseModel):
+    text: str
+    lat: float
+    lon: float
+
+@app.post("/api/report")
+async def report_concern(concern: Concern):
+    try:
+        if reports_col is None:
+             raise Exception("Database connection not established")
+             
+        # Create report document
+        report_doc = {
+            "text": concern.text,
+            "lat": concern.lat,
+            "lon": concern.lon,
+            "created_at": datetime.now(),
+            "category": "General", # Simple category for manual entry
+            "hotspot_prob": 0.5, # Default values
+            "severity_tag": 0.5
+        }
+        
+        # Simple severity scoring based on keywords
+        keywords = {
+            "urgent": 0.8,
+            "emergency": 0.9,
+            "broken": 0.7,
+            "danger": 0.85,
+            "water": 0.6,
+            "traffic": 0.4
+        }
+        
+        for k, v in keywords.items():
+            if k in concern.text.lower():
+                report_doc["severity_tag"] = max(report_doc["severity_tag"], v)
+        
+        # Insert into MongoDB
+        result = reports_col.insert_one(report_doc)
+        
+        return {
+            "status": "success",
+            "report_id": str(result.inserted_id),
+            "severity": report_doc["severity_tag"]
+        }
+    except Exception as e:
+        print(f"Error saving report: {e}")
+        return {"status": "error", "message": str(e)}
 
 # Test endpoint to check MongoDB and data
 @app.get("/debug-data")

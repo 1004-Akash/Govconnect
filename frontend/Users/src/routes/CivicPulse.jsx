@@ -12,6 +12,8 @@ export default function CivicPulse() {
         image: null
     });
     const [success, setSuccess] = useState(false);
+    const [locating, setLocating] = useState(false);
+    const [locationError, setLocationError] = useState('');
 
     const handleChange = e => {
         const { name, value, type, files } = e.target;
@@ -19,6 +21,33 @@ export default function CivicPulse() {
             ...f,
             [name]: type === 'file' ? files[0] : value
         }));
+    };
+
+    const handleUseCurrentLocation = () => {
+        if (!navigator.geolocation) {
+            setLocationError('Geolocation is not supported in this browser.');
+            return;
+        }
+
+        setLocating(true);
+        setLocationError('');
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const { latitude, longitude } = position.coords;
+                setForm(f => ({
+                    ...f,
+                    lat: latitude.toString(),
+                    lon: longitude.toString()
+                }));
+                setLocating(false);
+            },
+            (error) => {
+                console.error('Geolocation error:', error);
+                setLocationError('Unable to get your location. Please allow location access or enter it manually.');
+                setLocating(false);
+            }
+        );
     };
 
     const handleSubmit = async e => {
@@ -129,6 +158,22 @@ export default function CivicPulse() {
                                             placeholder="Enter longitude"
                                         />
                                     </div>
+                                </div>
+
+                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleUseCurrentLocation}
+                                        disabled={locating}
+                                        className="inline-flex items-center justify-center rounded-full bg-emerald-600 text-white px-4 py-2 text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
+                                    >
+                                        {locating ? 'Detecting location…' : 'Use my current location'}
+                                    </button>
+                                    {locationError && (
+                                        <p className="text-sm text-red-600 dark:text-red-400">
+                                            {locationError}
+                                        </p>
+                                    )}
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
